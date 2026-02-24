@@ -1,10 +1,10 @@
 <div id="bulls-cows-helper" style="max-width:720px;margin:20px auto;padding:20px;border:1px solid #ddd;border-radius:12px;font-family:Arial,sans-serif;line-height:1.4;">
-  <h2 style="margin:0 0 12px;">Помощник для «Быки и коровы» (3 цифры, 1–9, без повторов)</h2>
+  <h2 style="margin:0 0 12px;">Помощник для Machine Device (4 этаж Thanatos Tower)</h2>
 
   <div style="background:#f7f7f7;padding:12px;border-radius:8px;margin-bottom:14px;">
     <div style="font-size:14px;color:#444;margin-bottom:8px;">
-      Введите на другом устройстве/в игре предложенное число. Затем внесите ответ:
-      <b>быки</b> (на месте) и <b>коровы</b> (есть, но не на месте).
+      Введите в игре предложенное число. Затем внесите полученные числа:
+      <b>output 1</b> (цифр на правильной позиции) и <b>output 2</b> (цифр на неправильной позиции).
     </div>
 
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -15,13 +15,13 @@
 
       <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
         <label style="display:flex;flex-direction:column;font-size:12px;color:#666;">
-          Быки
+          Output 1
           <input id="bc-bulls" type="number" min="0" max="3" step="1"
                  style="width:80px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;">
         </label>
 
         <label style="display:flex;flex-direction:column;font-size:12px;color:#666;">
-          Коровы
+          Output 2
           <input id="bc-cows" type="number" min="0" max="3" step="1"
                  style="width:80px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;">
         </label>
@@ -220,8 +220,8 @@
           <tr style="background:#fafafa;">
             <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">#</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Число</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Быки</th>
-            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Коровы</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Output 1</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Output 2</th>
             <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Осталось вариантов</th>
           </tr>
         </thead>
@@ -272,7 +272,7 @@
     renderDebug();
     clearInputs();
 
-    setStatus("Игра начата. Введите предложенное число и укажите ответ (быки/коровы).", false);
+    setStatus("Игра начата. Введите предложенное число и укажите ответ (output 1/output 2).", false);
   }
 
   function handleNext() {
@@ -285,7 +285,7 @@
     const cows = Number(elCows.value);
 
     if (!isValidUserResponse(bulls, cows)) {
-      setStatus("Некорректный ввод. Быки и коровы должны быть целыми 0..3, и сумма не больше 3.", true);
+      setStatus("Некорректный ввод. output 1 и output 2 должны быть целыми 0..3, и сумма не больше 3.", true);
       return;
     }
 
@@ -326,7 +326,7 @@
     if (candidates.length === 0) {
       renderHistory();
       renderDebug();
-      setStatus("Противоречие в ответах: не осталось ни одного возможного числа. Проверьте историю ввода быков/коров.", true);
+      setStatus("Противоречие в ответах: не осталось ни одного возможного числа. Проверьте историю ввода output 1/output 2.", true);
       currentGuess = null;
       updateCurrentGuessView();
       return;
@@ -340,7 +340,7 @@
     clearInputs();
 
     if (candidates.length === 1) {
-      setStatus(`Остался 1 вариант. Введите число ${currentGuess}; ответ должен быть 3 быка, 0 коров.`, false);
+      setStatus(`Остался 1 вариант. Введите число ${currentGuess}; это верный ответ.`, false);
     } else {
       setStatus(`Осталось вариантов: ${candidates.length}. Введите предложенное число и укажите ответ.`, false);
     }
