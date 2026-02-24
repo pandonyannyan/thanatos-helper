@@ -1,0 +1,375 @@
+<div id="bulls-cows-helper" style="max-width:720px;margin:20px auto;padding:20px;border:1px solid #ddd;border-radius:12px;font-family:Arial,sans-serif;line-height:1.4;">
+  <h2 style="margin:0 0 12px;">Помощник для «Быки и коровы» (3 цифры, 1–9, без повторов)</h2>
+
+  <div style="background:#f7f7f7;padding:12px;border-radius:8px;margin-bottom:14px;">
+    <div style="font-size:14px;color:#444;margin-bottom:8px;">
+      Введите на другом устройстве/в игре предложенное число. Затем внесите ответ:
+      <b>быки</b> (на месте) и <b>коровы</b> (есть, но не на месте).
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:12px;color:#666;">Предлагаемое число</div>
+        <div id="bc-current-guess" style="font-size:28px;font-weight:700;letter-spacing:2px;">—</div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+        <label style="display:flex;flex-direction:column;font-size:12px;color:#666;">
+          Быки
+          <input id="bc-bulls" type="number" min="0" max="3" step="1"
+                 style="width:80px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;">
+        </label>
+
+        <label style="display:flex;flex-direction:column;font-size:12px;color:#666;">
+          Коровы
+          <input id="bc-cows" type="number" min="0" max="3" step="1"
+                 style="width:80px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:16px;">
+        </label>
+
+        <button id="bc-next-btn" type="button"
+                style="padding:10px 16px;border:none;border-radius:8px;background:#111;color:#fff;cursor:pointer;font-size:15px;">
+          Next
+        </button>
+
+        <button id="bc-restart-btn" type="button"
+                style="padding:10px 16px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#111;cursor:pointer;font-size:15px;">
+          Restart
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bc-status" style="margin-bottom:12px;font-size:14px;color:#333;"></div>
+
+  <div style="margin-bottom:10px;">
+    <b>История шагов</b>
+  </div>
+  <div id="bc-history" style="border:1px solid #eee;border-radius:8px;overflow:hidden;">
+    <div style="padding:10px;color:#777;">Пока пусто</div>
+  </div>
+
+  <details style="margin-top:14px;">
+    <summary style="cursor:pointer;">Показать отладочную информацию</summary>
+    <div id="bc-debug" style="margin-top:8px;font-size:13px;color:#555;"></div>
+  </details>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ========= Конфигурация =========
+  // poolForGuess = "ALL" -> minimax выбирает ход среди всех 504 чисел (обычно лучше)
+  // poolForGuess = "S"   -> minimax выбирает только среди оставшихся кандидатов (быстрее)
+  const poolForGuess = "ALL";
+
+  // ========= Состояние =========
+  let ALL = [];
+  let ALL_INDEX = new Map();      // guess -> index
+  let scoreTable = [];            // scoreTable[i][j] = code bulls*4 + cows (bulls,cows in 0..3)
+  let candidates = [];            // текущие возможные ответы
+  let currentGuess = null;
+  let step = 0;
+  let history = [];
+
+  // ========= DOM =========
+  const elGuess = document.getElementById("bc-current-guess");
+  const elBulls = document.getElementById("bc-bulls");
+  const elCows = document.getElementById("bc-cows");
+  const elNext = document.getElementById("bc-next-btn");
+  const elRestart = document.getElementById("bc-restart-btn");
+  const elStatus = document.getElementById("bc-status");
+  const elHistory = document.getElementById("bc-history");
+  const elDebug = document.getElementById("bc-debug");
+
+  // ========= Вспомогательные функции =========
+
+  function generateAll() {
+    const arr = [];
+    for (let a = 1; a <= 9; a++) {
+      for (let b = 1; b <= 9; b++) {
+        if (b === a) continue;
+        for (let c = 1; c <= 9; c++) {
+          if (c === a || c === b) continue;
+          arr.push("" + a + b + c);
+        }
+      }
+    }
+    return arr; // 504
+  }
+
+  function scoreCode(secret, guess) {
+    // Возвращает код = bulls*4 + cows (достаточно для 0..3)
+    let bulls = 0;
+    if (secret[0] === guess[0]) bulls++;
+    if (secret[1] === guess[1]) bulls++;
+    if (secret[2] === guess[2]) bulls++;
+
+    // т.к. цифры уникальны и только 1..9 — можно считать common просто через includes
+    let common = 0;
+    if (secret.indexOf(guess[0]) !== -1) common++;
+    if (secret.indexOf(guess[1]) !== -1) common++;
+    if (secret.indexOf(guess[2]) !== -1) common++;
+
+    const cows = common - bulls;
+    return bulls * 4 + cows;
+  }
+
+  function decodeScore(code) {
+    return { bulls: Math.floor(code / 4), cows: code % 4 };
+  }
+
+  function isValidUserResponse(bulls, cows) {
+    // Базовые ограничения
+    if (!Number.isInteger(bulls) || !Number.isInteger(cows)) return false;
+    if (bulls < 0 || bulls > 3 || cows < 0 || cows > 3) return false;
+    if (bulls + cows > 3) return false;
+
+    // Для 3 цифр невозможны некоторые комбинации, например (2,1) — на самом деле возможна,
+    // а (1,2) тоже возможна. Главное ограничение here: сумма <= 3.
+    // (3, anything>0) уже отсеклось sum<=3.
+    return true;
+  }
+
+  function buildScoreTable() {
+    const n = ALL.length;
+    scoreTable = Array.from({ length: n }, () => new Uint8Array(n));
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        scoreTable[i][j] = scoreCode(ALL[i], ALL[j]);
+      }
+    }
+  }
+
+  function filterCandidates(prevCandidates, guess, bulls, cows) {
+    const guessIdx = ALL_INDEX.get(guess);
+    const targetCode = bulls * 4 + cows;
+    const result = [];
+    for (let i = 0; i < prevCandidates.length; i++) {
+      const cand = prevCandidates[i];
+      const candIdx = ALL_INDEX.get(cand);
+      if (scoreTable[candIdx][guessIdx] === targetCode) {
+        result.push(cand);
+      }
+    }
+    return result;
+  }
+
+  function chooseNextGuessMinimax(currentCandidates) {
+    if (currentCandidates.length === 0) return null;
+    if (currentCandidates.length === 1) return currentCandidates[0];
+
+    const candidateSet = new Set(currentCandidates);
+    const pool = (poolForGuess === "S") ? currentCandidates : ALL;
+
+    let bestGuess = null;
+    let bestWorst = Infinity;
+    let bestIsInS = false;
+
+    // Для каждого possible guess считаем разбиение текущих кандидатов по ответам
+    for (let p = 0; p < pool.length; p++) {
+      const g = pool[p];
+      const gIdx = ALL_INDEX.get(g);
+
+      // Возможных кодов немного: bulls 0..3, cows 0..3, фактически <=16
+      const buckets = new Uint16Array(16);
+
+      let worst = 0;
+
+      for (let i = 0; i < currentCandidates.length; i++) {
+        const x = currentCandidates[i];
+        const xIdx = ALL_INDEX.get(x);
+        const code = scoreTable[xIdx][gIdx];
+        const v = ++buckets[code];
+        if (v > worst) worst = v;
+
+        // Небольшая оптимизация отсечения:
+        if (worst > bestWorst) break;
+      }
+
+      const inS = candidateSet.has(g);
+
+      if (
+        worst < bestWorst ||
+        (worst === bestWorst && inS && !bestIsInS) ||
+        (worst === bestWorst && inS === bestIsInS && (bestGuess === null || g < bestGuess))
+      ) {
+        bestWorst = worst;
+        bestGuess = g;
+        bestIsInS = inS;
+      }
+    }
+
+    return bestGuess;
+  }
+
+  function setStatus(msg, isError) {
+    elStatus.textContent = msg;
+    elStatus.style.color = isError ? "#b00020" : "#333";
+  }
+
+  function renderHistory() {
+    if (history.length === 0) {
+      elHistory.innerHTML = '<div style="padding:10px;color:#777;">Пока пусто</div>';
+      return;
+    }
+
+    let html = `
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#fafafa;">
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">#</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Число</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Быки</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Коровы</th>
+            <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Осталось вариантов</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    for (const row of history) {
+      html += `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #f2f2f2;">${row.step}</td>
+          <td style="padding:8px;border-bottom:1px solid #f2f2f2;font-weight:700;letter-spacing:1px;">${row.guess}</td>
+          <td style="padding:8px;border-bottom:1px solid #f2f2f2;">${row.bulls}</td>
+          <td style="padding:8px;border-bottom:1px solid #f2f2f2;">${row.cows}</td>
+          <td style="padding:8px;border-bottom:1px solid #f2f2f2;">${row.remaining}</td>
+        </tr>
+      `;
+    }
+    html += "</tbody></table>";
+    elHistory.innerHTML = html;
+  }
+
+  function renderDebug() {
+    elDebug.innerHTML = `
+      Всего допустимых чисел: <b>${ALL.length}</b><br>
+      Текущих кандидатов: <b>${candidates.length}</b><br>
+      Текущий шаг: <b>${step}</b><br>
+      Режим выбора хода: <b>${poolForGuess === "ALL" ? "minimax по всем 504 числам" : "minimax только по оставшимся кандидатам"}</b>
+    `;
+  }
+
+  function updateCurrentGuessView() {
+    elGuess.textContent = currentGuess || "—";
+  }
+
+  function clearInputs() {
+    elBulls.value = "";
+    elCows.value = "";
+    elBulls.focus();
+  }
+
+  function startNewSession() {
+    candidates = ALL.slice();
+    history = [];
+    step = 0;
+
+    currentGuess = chooseNextGuessMinimax(candidates);
+    updateCurrentGuessView();
+    renderHistory();
+    renderDebug();
+    clearInputs();
+
+    setStatus("Игра начата. Введите предложенное число и укажите ответ (быки/коровы).", false);
+  }
+
+  function handleNext() {
+    if (!currentGuess) {
+      setStatus("Нет текущего числа для проверки. Нажмите Restart.", true);
+      return;
+    }
+
+    const bulls = Number(elBulls.value);
+    const cows = Number(elCows.value);
+
+    if (!isValidUserResponse(bulls, cows)) {
+      setStatus("Некорректный ввод. Быки и коровы должны быть целыми 0..3, и сумма не больше 3.", true);
+      return;
+    }
+
+    step++;
+
+    // Если угадано
+    if (bulls === 3 && cows === 0) {
+      history.push({
+        step,
+        guess: currentGuess,
+        bulls,
+        cows,
+        remaining: 1
+      });
+
+      renderHistory();
+      renderDebug();
+      setStatus(`Готово! Число найдено за ${step} шаг(ов): ${currentGuess}`, false);
+      currentGuess = null;
+      updateCurrentGuessView();
+      clearInputs();
+      return;
+    }
+
+    // Фильтрация кандидатов по полученному ответу
+    const nextCandidates = filterCandidates(candidates, currentGuess, bulls, cows);
+
+    history.push({
+      step,
+      guess: currentGuess,
+      bulls,
+      cows,
+      remaining: nextCandidates.length
+    });
+
+    candidates = nextCandidates;
+
+    if (candidates.length === 0) {
+      renderHistory();
+      renderDebug();
+      setStatus("Противоречие в ответах: не осталось ни одного возможного числа. Проверьте историю ввода быков/коров.", true);
+      currentGuess = null;
+      updateCurrentGuessView();
+      return;
+    }
+
+    currentGuess = chooseNextGuessMinimax(candidates);
+
+    renderHistory();
+    renderDebug();
+    updateCurrentGuessView();
+    clearInputs();
+
+    if (candidates.length === 1) {
+      setStatus(`Остался 1 вариант. Введите число ${currentGuess}; ответ должен быть 3 быка, 0 коров.`, false);
+    } else {
+      setStatus(`Осталось вариантов: ${candidates.length}. Введите предложенное число и укажите ответ.`, false);
+    }
+  }
+
+  // ========= Инициализация =========
+  function init() {
+    ALL = generateAll();
+    ALL.forEach((x, i) => ALL_INDEX.set(x, i));
+
+    setStatus("Подготовка таблицы ходов...", false);
+
+    // Чтобы интерфейс успел отрисоваться перед вычислениями
+    setTimeout(() => {
+      buildScoreTable();
+      startNewSession();
+    }, 0);
+  }
+
+  elNext.addEventListener("click", handleNext);
+  elRestart.addEventListener("click", startNewSession);
+
+  elBulls.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") elCows.focus();
+  });
+  elCows.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") handleNext();
+  });
+
+  init();
+})();
+</script>
